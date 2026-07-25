@@ -1,0 +1,13 @@
+# Validated on Python 3.11.15 / macOS arm64.  Keep this file pinned so a
+# future native wheel does not silently change the XGBoost/Torch ABI surface.
+numpy==2.4.6
+pandas==3.0.3
+scikit-learn==1.9.0
+xgboost==3.2.0
+torch==2.13.0
+shap==0.51.0
+fastapi==0.139.2
+uvicorn==0.51.0
+joblib==1.5.3
+prometheus-client==0.25.0
+requests==2.34.2

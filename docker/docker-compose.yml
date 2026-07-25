@@ -1,0 +1,99 @@
+# ClusterHealth AI — full stack, one command:
+#     docker compose up --build
+#
+# Services:
+#   metrics-exporter  -> simulates a live GPU/CPU cluster (real DCGM Exporter in production)
+#   prometheus        -> scrapes metrics-exporter + risk-exporter
+#   clusterhealth-api -> the AI inference API (XGBoost + BiGRU + SHAP + alerts + k8s actions)
+#   risk-exporter      -> re-publishes the API's predictions as Prometheus metrics
+#   grafana           -> dashboards: raw telemetry + AI risk score, side by side
+#   dashboard         -> the ClusterHealth AI web dashboard (nginx, static)
+#
+# URLs once running:
+#   Dashboard  -> http://localhost:8080
+#   API docs   -> http://localhost:8000/docs
+#   Prometheus -> http://localhost:9090
+#   Grafana    -> http://localhost:3000  (login: admin / admin)
+
+services:
+  metrics-exporter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.exporters
+    command: ["python3", "metrics_exporter.py"]
+    ports:
+      - "9400:9400"
+    restart: unless-stopped
+
+  clusterhealth-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "8000:8000"
+    environment:
+      PROMETHEUS_URL: "http://prometheus:9090"
+      CORS_ALLOW_ORIGINS: "http://localhost:8080,http://127.0.0.1:8080"
+      ENABLE_REAL_K8S_ACTIONS: "false"
+      # Optional live alerting -- fill these in docker/.env (copy from .env.example)
+      SLACK_WEBHOOK_URL: "${SLACK_WEBHOOK_URL:-}"
+      DISCORD_WEBHOOK_URL: "${DISCORD_WEBHOOK_URL:-}"
+      ALERT_EMAIL_FROM: "${ALERT_EMAIL_FROM:-}"
+      ALERT_EMAIL_TO: "${ALERT_EMAIL_TO:-}"
+      SMTP_HOST: "${SMTP_HOST:-}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USER: "${SMTP_USER:-}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:-}"
+    restart: unless-stopped
+
+  risk-exporter:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.exporters
+    command: ["python3", "risk_exporter.py"]
+    environment:
+      CLUSTERHEALTH_API_URL: "http://clusterhealth-api:8000"
+      RISK_EXPORTER_POLL_SECONDS: "10"
+    ports:
+      - "9500:9500"
+    depends_on:
+      - clusterhealth-api
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+    depends_on:
+      - metrics-exporter
+      - risk-exporter
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: "${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in docker/.env}"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards-json:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dashboard
+    ports:
+      - "8080:80"
+    depends_on:
+      - clusterhealth-api
+    restart: unless-stopped

@@ -1,0 +1,13 @@
+FROM python:3.11.15-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+RUN pip install --no-cache-dir prometheus_client==0.25.0 requests==2.34.2 numpy==2.4.6 \
+    && useradd --create-home --uid 10001 appuser
+
+COPY --chown=appuser:appuser src/metrics_exporter.py src/risk_exporter.py src/features.py ./
+USER appuser
+
+# Actual command (metrics_exporter.py or risk_exporter.py) is set per-service
+# in docker-compose.yml via the `command:` override.
+CMD ["python3", "metrics_exporter.py"]

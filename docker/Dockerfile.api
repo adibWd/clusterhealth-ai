@@ -1,0 +1,27 @@
+FROM python:3.11.15-slim
+
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+# xgboost + torch + shap all link OpenMP. python:slim doesn't ship libgomp1
+# by default, which fails as a silent import crash, not a clear error message.
+# KMP_DUPLICATE_LIB_OK is a defense-in-depth belt-and-suspenders alongside the
+# process-isolated XGBoost/SHAP worker in model_service.py.
+ENV KMP_DUPLICATE_LIB_OK=TRUE
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt \
+    && useradd --create-home --uid 10001 appuser
+
+COPY --chown=appuser:appuser src/ ./src/
+COPY --chown=appuser:appuser data/ ./data/
+COPY --chown=appuser:appuser models/ ./models/
+
+WORKDIR /app/src
+USER appuser
+
+EXPOSE 8000
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]

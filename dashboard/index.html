@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ClusterHealth AI — Live Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #121821;
+    --panel-2: #17202b;
+    --border: #232d3a;
+    --text: #e6edf3;
+    --muted: #8b98a5;
+    --green: #3fb950;
+    --yellow: #d29922;
+    --red: #f85149;
+    --accent: #58a6ff;
+    --gold: #f2c744;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  header {
+    padding: 20px 28px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;
+  }
+  header h1 { margin: 0; font-size: 20px; font-weight: 600; }
+  header p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .badge {
+    background: var(--panel-2); border: 1px solid var(--border);
+    border-radius: 20px; padding: 6px 14px; font-size: 12px; color: var(--accent);
+  }
+  .mode-btn {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 20px; padding: 7px 16px; font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .mode-btn.active { background: rgba(63,185,80,.15); border-color: var(--green); color: var(--green); }
+  .live-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--green);
+    display: inline-block; margin-right: 6px; animation: pulse 1.4s infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+  .container { padding: 20px 28px; }
+
+  /* ---- cost banner ---- */
+  .cost-banner {
+    background: linear-gradient(135deg, #1a1508, var(--panel));
+    border: 1px solid #4a3a10; border-radius: 12px; padding: 18px 20px; margin-bottom: 20px;
+    display: grid; grid-template-columns: 1.1fr 1fr 1fr 1fr 1.3fr; gap: 18px; align-items: center;
+  }
+  .cost-banner h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--gold); margin: 0 0 4px;
+  }
+  .cost-banner .sub { font-size: 11px; color: var(--muted); }
+  .cost-kpi .val { font-size: 26px; font-weight: 700; color: var(--gold); }
+  .cost-kpi .lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  #wasteList { font-size: 12px; }
+  .waste-row { display: flex; justify-content: space-between; padding: 3px 0; color: var(--muted); }
+  .waste-row b { color: var(--text); }
+
+  /* ---- report card & threshold tuner ---- */
+  .rc-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 24px; align-items: center; }
+  .rc-tuner-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; color: var(--muted); }
+  .rc-tuner-row span:last-child { font-size: 20px; font-weight: 700; color: var(--accent); }
+  input[type=range] {
+    width: 100%; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 4px;
+    background: var(--panel-2); outline: none; margin: 8px 0 14px; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 18px; height: 18px; border-radius: 50%;
+    background: var(--accent); cursor: pointer; border: 3px solid var(--bg); box-shadow: 0 0 0 1px var(--border);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 18px; height: 18px; border-radius: 50%; background: var(--accent); cursor: pointer;
+    border: 3px solid var(--bg); box-shadow: 0 0 0 1px var(--border);
+  }
+  .rc-presets { display: flex; gap: 8px; flex-wrap: wrap; }
+  .rc-btn {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 20px; padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+  }
+  .rc-btn:hover { border-color: var(--accent); }
+  .rc-btn.suggested { border-color: var(--gold); color: var(--gold); }
+  .rc-counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .kpi.good .val { color: var(--green); }
+  .kpi.good { border-color: rgba(63,185,80,.35); }
+
+  @media (max-width: 900px) {
+    .rc-grid { grid-template-columns: 1fr; }
+  }
+
+  .layout {
+    display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start;
+  }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 18px;
+  }
+  .panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em;
+              color: var(--muted); margin: 0 0 14px; }
+  .kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 18px; }
+  .kpi { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; text-align: center; }
+  .kpi .val { font-size: 24px; font-weight: 700; }
+  .kpi .lbl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .kpi.high .val { color: var(--red); }
+  .kpi.med .val { color: var(--yellow); }
+  .kpi.total .val { color: var(--accent); }
+
+  #deviceList { max-height: 480px; overflow-y: auto; }
+  .device-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 9px 10px; border-radius: 8px; cursor: pointer; font-size: 13px;
+    border: 1px solid transparent;
+  }
+  .device-row:hover { background: var(--panel-2); }
+  .device-row.selected { background: #1c2a3a; border-color: var(--accent); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 8px; }
+  .dot.high { background: var(--red); }
+  .dot.medium { background: var(--yellow); }
+  .dot.low { background: var(--green); }
+  .prob { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .detail-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+  .risk-pill { padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .risk-pill.high { background: rgba(248,81,73,.15); color: var(--red); border: 1px solid rgba(248,81,73,.4); }
+  .risk-pill.medium { background: rgba(210,153,34,.15); color: var(--yellow); border: 1px solid rgba(210,153,34,.4); }
+  .risk-pill.low { background: rgba(63,185,80,.15); color: var(--green); border: 1px solid rgba(63,185,80,.4); }
+
+  .model-scores { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 18px; }
+  .score-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .score-card .name { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .score-card .num { font-size: 22px; font-weight: 700; margin-top: 4px; }
+
+  .action-box {
+    background: var(--panel-2); border-left: 3px solid var(--accent);
+    border-radius: 8px; padding: 12px 14px; font-size: 13px; margin-bottom: 12px; line-height: 1.5;
+  }
+  .action-btn {
+    background: var(--red); color: white; border: none; border-radius: 8px;
+    padding: 10px 16px; font-size: 13px; font-weight: 600; cursor: pointer; margin-bottom: 18px;
+  }
+  .action-btn:hover { opacity: 0.9; }
+  .action-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .action-btn.medium { background: var(--yellow); color: #1a1400; }
+  .console {
+    background: #050708; border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px;
+    color: #c9d1d9; line-height: 1.6; margin-bottom: 18px; max-height: 260px; overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  .console .mode-tag {
+    display: inline-block; background: var(--panel-2); color: var(--accent);
+    border-radius: 4px; padding: 2px 8px; font-size: 10px; margin-bottom: 8px; text-transform: uppercase;
+  }
+
+  .shap-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 12px; }
+  .shap-label { width: 180px; color: var(--muted); flex-shrink: 0; }
+  .shap-track { flex: 1; background: var(--panel-2); border-radius: 4px; height: 10px; position: relative; overflow: hidden; }
+  .shap-fill { height: 100%; border-radius: 4px; }
+  .shap-fill.pos { background: var(--red); }
+  .shap-fill.neg { background: var(--green); }
+  .shap-val { width: 55px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .readings-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .reading { background: var(--panel-2); border-radius: 8px; padding: 10px; }
+  .reading .k { font-size: 10px; color: var(--muted); text-transform: uppercase; }
+  .reading .v { font-size: 15px; font-weight: 600; margin-top: 2px; }
+
+  .chart-wrap { background: var(--panel-2); border-radius: 10px; padding: 12px; margin-bottom: 18px; height: 160px; }
+
+  .empty { color: var(--muted); font-size: 13px; padding: 40px; text-align: center; }
+  .loading { color: var(--muted); font-size: 13px; }
+  select, input[type=text] {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    padding: 8px 10px; border-radius: 8px; font-size: 13px; width: 100%; margin-bottom: 10px;
+  }
+
+  @media (max-width: 900px) {
+    .cost-banner { grid-template-columns: 1fr 1fr; }
+    .layout { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🖥️ ClusterHealth AI</h1>
+    <p>Predictive GPU/CPU cluster monitoring — hybrid XGBoost + BiGRU-Attention, explained via SHAP</p>
+  </div>
+  <div class="header-right">
+    <button class="mode-btn" id="btnStatic" onclick="setMode('static')">📊 Full Cluster (300)</button>
+    <button class="mode-btn active" id="btnLive" onclick="setMode('live')"><span class="live-dot"></span>Live Demo (8)</button>
+    <span class="badge" id="apiStatus">connecting to API…</span>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- COST OPTIMIZER BANNER -->
+  <div class="cost-banner">
+    <div>
+      <h2>💰 Cost Optimizer</h2>
+      <div class="sub">Underutilized GPUs (&lt;40% util) flagged for consolidation</div>
+    </div>
+    <div class="cost-kpi"><div class="val" id="costIdle">–</div><div class="lbl">Idle / underutilized GPUs</div></div>
+    <div class="cost-kpi"><div class="val" id="costDaily">–</div><div class="lbl">Daily waste</div></div>
+    <div class="cost-kpi"><div class="val" id="costMonthly">–</div><div class="lbl">Monthly waste</div></div>
+    <div>
+      <div class="sub" style="margin-bottom:6px">Top waste contributors</div>
+      <div id="wasteList"><span class="loading">loading…</span></div>
+    </div>
+  </div>
+
+  <!-- REPORT CARD & THRESHOLD TUNER (Final Round challenge task) -->
+  <div class="panel" id="reportCardPanel" style="margin-bottom:20px;">
+    <div class="detail-header" style="margin-bottom:6px;">
+      <div>
+        <h2 style="margin-bottom:2px; text-transform:none; font-size:16px; color:var(--text);">📋 Report Card &amp; Threshold Tuner</h2>
+        <div style="color:var(--muted); font-size:12px" id="rcSampleSize">Scored once against the stored, labeled telemetry run — no retraining, the slider just recomputes counts.</div>
+      </div>
+      <span class="badge" id="rcSuggestedBadge">suggested level: –</span>
+    </div>
+
+    <div class="rc-grid">
+      <div class="rc-tuner">
+        <div class="rc-tuner-row"><span>Alert threshold (ensemble risk ≥)</span><span id="rcThresholdLabel">40%</span></div>
+        <input type="range" id="rcSlider" min="5" max="95" step="1" value="40">
+        <div class="rc-presets">
+          <button class="rc-btn" onclick="setReportCardThreshold(25)">Low · 25%</button>
+          <button class="rc-btn" onclick="setReportCardThreshold(50)">Medium · 50%</button>
+          <button class="rc-btn" onclick="setReportCardThreshold(75)">High · 75%</button>
+          <button class="rc-btn suggested" id="rcUseSuggestedBtn" onclick="useSuggestedThreshold()">✨ Use Suggested</button>
+        </div>
+        <div class="action-box" id="rcReasonBox" style="margin-top:12px;">Loading suggested level…</div>
+        <div style="color:var(--muted); font-size:12px; margin-top:8px;" id="rcPrecisionRecall">precision – · recall –</div>
+      </div>
+
+      <div class="rc-counts">
+        <div class="kpi good"><div class="val" id="rcCaught">–</div><div class="lbl">Faults Caught</div></div>
+        <div class="kpi high"><div class="val" id="rcMissed">–</div><div class="lbl">Faults Missed</div></div>
+        <div class="kpi med"><div class="val" id="rcFalseAlarms">–</div><div class="lbl">False Alarms</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="layout">
+
+    <!-- LEFT: cluster list -->
+    <div class="panel">
+      <h2>Cluster Overview</h2>
+      <div class="kpis">
+        <div class="kpi total"><div class="val" id="kpiTotal">–</div><div class="lbl">Devices</div></div>
+        <div class="kpi high"><div class="val" id="kpiHigh">–</div><div class="lbl">High Risk</div></div>
+        <div class="kpi med"><div class="val" id="kpiMed">–</div><div class="lbl">Medium Risk</div></div>
+      </div>
+      <input type="text" id="searchBox" placeholder="Filter by device id…">
+      <div id="deviceList"><div class="loading">Loading devices…</div></div>
+    </div>
+
+    <!-- RIGHT: device detail -->
+    <div class="panel" id="detailPanel">
+      <h2>Device Detail</h2>
+      <div class="empty">Select a device from the list to see its failure-risk prediction and explanation.</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const API = "http://localhost:8000";
+let allDevices = [];
+let selectedId = null;
+let mode = "live";          // "live" (8-device simulator, auto-refreshes) or "static" (full 300-device CSV)
+let refreshTimer = null;
+let tempHistory = {};       // client-side rolling buffer for the live temperature chart: { device_id: [{t, temp}] }
+let tempChart = null;
+
+async function fetchJSON(path, opts) {
+  const res = await fetch(API + path, opts);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function init() {
+  try {
+    await fetchJSON("/");
+    document.getElementById("apiStatus").textContent = "● API connected";
+    document.getElementById("apiStatus").style.color = "#3fb950";
+  } catch (e) {
+    document.getElementById("apiStatus").textContent = "● API offline — run: uvicorn api:app --port 8000";
+    document.getElementById("apiStatus").style.color = "#f85149";
+    return;
+  }
+  await loadOverview();
+  await loadCost();
+  await loadReportCardConfig();
+  await loadReportCardSuggested();
+  await loadReportCard(Number(document.getElementById("rcSlider").value));
+  startAutoRefresh();
+}
+
+function setMode(newMode) {
+  mode = newMode;
+  document.getElementById("btnLive").classList.toggle("active", mode === "live");
+  document.getElementById("btnStatic").classList.toggle("active", mode === "static");
+  selectedId = null;
+  tempHistory = {};
+  loadOverview();
+  startAutoRefresh();
+}
+
+function startAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  if (mode === "live") {
+    refreshTimer = setInterval(async () => {
+      await loadOverview(true);
+      await loadCost();
+    }, 5000);
+  }
+}
+
+async function loadOverview(isBackgroundTick) {
+  const path = mode === "live" ? "/live/snapshot" : "/cluster/overview";
+  const data = await fetchJSON(path);
+  allDevices = data.devices;
+  document.getElementById("kpiTotal").textContent = data.total_devices;
+  document.getElementById("kpiHigh").textContent = data.high_risk;
+  document.getElementById("kpiMed").textContent = data.medium_risk;
+  renderDeviceList(applyFilter(allDevices));
+
+  if (mode === "live") {
+    // live snapshot already carries full detail -- render straight from it,
+    // no extra round trip, and update the rolling temperature chart.
+    allDevices.forEach(d => recordTemp(d.device_id, d.readings.gpu_temp_c));
+    if (!selectedId && allDevices.length) selectedId = allDevices[0].device_id;
+    if (selectedId) {
+      const d = allDevices.find(x => x.device_id === selectedId);
+      if (d) renderLiveDetail(d);
+    }
+  } else if (!isBackgroundTick) {
+    if (allDevices.length) selectDevice(allDevices[0].device_id);
+  }
+}
+
+async function loadCost() {
+  try {
+    const data = await fetchJSON("/cost/analysis");
+    document.getElementById("costIdle").textContent = data.idle_devices;
+    document.getElementById("costDaily").textContent = "$" + data.daily_waste_usd.toLocaleString();
+    document.getElementById("costMonthly").textContent = "$" + data.monthly_waste_usd.toLocaleString();
+
+    const top = data.devices.filter(d => d.is_idle).slice(0, 4);
+    const list = document.getElementById("wasteList");
+    list.innerHTML = top.length ? top.map(d => `
+      <div class="waste-row">
+        <span>GPU ${d.device_id} · ${d.utilization_pct}% util</span>
+        <b>$${d.daily_waste_usd}/day</b>
+      </div>
+    `).join("") : `<div class="waste-row"><span>No underutilized GPUs right now</span></div>`;
+  } catch (e) {
+    console.warn("cost/analysis failed", e);
+  }
+}
+
+// ---- Report Card & Threshold Tuner ----------------------------------
+// Independent of the Live/Static toggle above: this always scores the
+// stored, labeled synthetic run (not the live simulator), per the
+// challenge brief. Moving the slider hits a cached, pre-scored dataset,
+// so it feels instant even though it's a real network round trip.
+let reportCardConfig = null;
+let reportCardSuggested = null;
+let rcDebounceTimer = null;
+
+async function loadReportCardConfig() {
+  try {
+    reportCardConfig = await fetchJSON("/reportcard/config");
+    const slider = document.getElementById("rcSlider");
+    slider.min = Math.round(reportCardConfig.min_threshold * 100);
+    slider.max = Math.round(reportCardConfig.max_threshold * 100);
+    slider.value = Math.round(reportCardConfig.default_threshold * 100);
+    document.getElementById("rcThresholdLabel").textContent = slider.value + "%";
+    document.getElementById("rcSampleSize").textContent =
+      `${reportCardConfig.total_windows.toLocaleString()} stored windows scored once by the hybrid ensemble · ${reportCardConfig.total_labeled_faults.toLocaleString()} known faults in the run`;
+  } catch (e) {
+    console.warn("reportcard/config failed", e);
+    document.getElementById("rcSampleSize").textContent = "Report Card unavailable — check the API console.";
+  }
+}
+
+async function loadReportCardSuggested() {
+  try {
+    reportCardSuggested = await fetchJSON("/reportcard/suggested");
+    document.getElementById("rcSuggestedBadge").textContent = `suggested level: ${(reportCardSuggested.threshold * 100).toFixed(0)}%`;
+    document.getElementById("rcReasonBox").innerHTML = `✨ <strong>Suggested level:</strong> ${reportCardSuggested.reason}`;
+  } catch (e) {
+    console.warn("reportcard/suggested failed", e);
+  }
+}
+
+async function loadReportCard(thresholdPct) {
+  try {
+    const threshold = thresholdPct / 100;
+    const data = await fetchJSON(`/reportcard?threshold=${threshold}`);
+    document.getElementById("rcCaught").textContent = data.faults_caught;
+    document.getElementById("rcMissed").textContent = data.faults_missed;
+    document.getElementById("rcFalseAlarms").textContent = data.false_alarms;
+    document.getElementById("rcPrecisionRecall").textContent =
+      `precision ${(data.precision * 100).toFixed(1)}% · recall ${(data.recall * 100).toFixed(1)}% · false-alarm rate ${(data.false_alarm_rate * 100).toFixed(1)}%`;
+  } catch (e) {
+    console.warn("reportcard failed", e);
+  }
+}
+
+function setReportCardThreshold(pct) {
+  const slider = document.getElementById("rcSlider");
+  slider.value = pct;
+  document.getElementById("rcThresholdLabel").textContent = pct + "%";
+  loadReportCard(pct);
+}
+
+function useSuggestedThreshold() {
+  if (!reportCardSuggested) return;
+  setReportCardThreshold(Math.round(reportCardSuggested.threshold * 100));
+}
+
+document.getElementById("rcSlider").addEventListener("input", (e) => {
+  const pct = Number(e.target.value);
+  document.getElementById("rcThresholdLabel").textContent = pct + "%";
+  clearTimeout(rcDebounceTimer);
+  rcDebounceTimer = setTimeout(() => loadReportCard(pct), 80);
+});
+
+function applyFilter(devices) {
+  const q = document.getElementById("searchBox").value.trim();
+  return q ? devices.filter(d => String(d.device_id).includes(q)) : devices;
+}
+
+function renderDeviceList(devices) {
+  const el = document.getElementById("deviceList");
+  el.innerHTML = "";
+  devices.forEach(d => {
+    const row = document.createElement("div");
+    row.className = "device-row" + (d.device_id === selectedId ? " selected" : "");
+    row.onclick = () => mode === "live" ? selectLiveDevice(d.device_id) : selectDevice(d.device_id);
+    row.innerHTML = `
+      <span><span class="dot ${d.risk_level}"></span>Device ${d.device_id}</span>
+      <span class="prob">${(d.ensemble_probability * 100).toFixed(1)}%</span>
+    `;
+    el.appendChild(row);
+  });
+}
+
+document.getElementById("searchBox").addEventListener("input", () => {
+  renderDeviceList(applyFilter(allDevices));
+});
+
+function recordTemp(deviceId, temp) {
+  if (!tempHistory[deviceId]) tempHistory[deviceId] = [];
+  tempHistory[deviceId].push({ t: new Date().toLocaleTimeString(), temp });
+  if (tempHistory[deviceId].length > 20) tempHistory[deviceId].shift();
+}
+
+function selectLiveDevice(id) {
+  selectedId = id;
+  renderDeviceList(applyFilter(allDevices));
+  const d = allDevices.find(x => x.device_id === id);
+  if (d) renderLiveDetail(d);
+}
+
+function shapRowsHtml(reasons) {
+  return reasons.map(([name, val]) => {
+    const pct = Math.min(100, Math.abs(val) / (Math.abs(reasons[0][1]) || 1) * 100);
+    const cls = val >= 0 ? "pos" : "neg";
+    return `
+      <div class="shap-bar-row">
+        <div class="shap-label">${name}</div>
+        <div class="shap-track"><div class="shap-fill ${cls}" style="width:${pct}%"></div></div>
+        <div class="shap-val">${val.toFixed(2)}</div>
+      </div>`;
+  }).join("");
+}
+
+function renderLiveDetail(d) {
+  const readingRows = Object.entries(d.readings).map(([k, v]) => `
+    <div class="reading"><div class="k">${k}</div><div class="v">${v}</div></div>
+  `).join("");
+
+  const panel = document.getElementById("detailPanel");
+  panel.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <h2 style="margin-bottom:4px">Device ${d.device_id} <span style="color:var(--green);font-size:11px;font-weight:400">● live</span></h2>
+        <div style="color:var(--muted); font-size:12px">Auto-refreshing every 5s from the live simulator</div>
+      </div>
+      <span class="risk-pill ${d.risk_level}">${d.risk_level.toUpperCase()} RISK</span>
+    </div>
+
+    <div class="model-scores">
+      <div class="score-card"><div class="name">XGBoost</div><div class="num">${(d.xgb_probability*100).toFixed(1)}%</div></div>
+      <div class="score-card"><div class="name">BiGRU-Attention</div><div class="num">${(d.bigru_probability*100).toFixed(1)}%</div></div>
+      <div class="score-card"><div class="name">Ensemble (0.6/0.4)</div><div class="num">${(d.ensemble_probability*100).toFixed(1)}%</div></div>
+    </div>
+
+    <div class="action-box">🛠️ <strong>Recommended action:</strong> ${d.recommended_action}</div>
+
+    ${d.risk_level !== 'low' ? `
+      <button class="action-btn ${d.risk_level}" id="executeBtn" onclick="executeAction(${d.device_id})">
+        ⚙️ Execute Recommended Action (Cordon + Drain Node)
+      </button>
+      <div id="consoleOutput"></div>
+    ` : ''}
+
+    <h2>Temperature trend (live)</h2>
+    <div class="chart-wrap"><canvas id="tempCanvas"></canvas></div>
+
+    <h2>SHAP Explainability — why the model flagged this device</h2>
+    ${shapRowsHtml(d.top_shap_reasons)}
+
+    <h2 style="margin-top:20px">Latest Simulated Telemetry</h2>
+    <div class="readings-grid">${readingRows}</div>
+  `;
+
+  drawTempChart(d.device_id);
+}
+
+function drawTempChart(deviceId) {
+  const hist = tempHistory[deviceId] || [];
+  const ctx = document.getElementById("tempCanvas");
+  if (!ctx) return;
+  if (tempChart) tempChart.destroy();
+  tempChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: hist.map(p => p.t),
+      datasets: [{
+        label: "GPU Temp (°C)",
+        data: hist.map(p => p.temp),
+        borderColor: "#f85149",
+        backgroundColor: "rgba(248,81,73,.1)",
+        tension: 0.3,
+        fill: true,
+        pointRadius: 2,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#8b98a5", maxTicksLimit: 6 }, grid: { color: "#232d3a" } },
+        y: { ticks: { color: "#8b98a5" }, grid: { color: "#232d3a" } },
+      }
+    }
+  });
+}
+
+async function selectDevice(id) {
+  selectedId = id;
+  renderDeviceList(applyFilter(allDevices));
+  const panel = document.getElementById("detailPanel");
+  panel.innerHTML = `<h2>Device Detail</h2><div class="loading">Scoring device ${id}…</div>`;
+
+  const d = await fetchJSON(`/predict/device/${id}`);
+
+  const readingRows = Object.entries(d.raw_last_reading).map(([k, v]) => `
+    <div class="reading"><div class="k">${k}</div><div class="v">${v.toFixed(2)}</div></div>
+  `).join("");
+
+  panel.innerHTML = `
+    <div class="detail-header">
+      <div>
+        <h2 style="margin-bottom:4px">Device ${d.device_id}</h2>
+        <div style="color:var(--muted); font-size:12px">Last telemetry timestep: ${d.last_timestep}</div>
+      </div>
+      <span class="risk-pill ${d.risk_level}">${d.risk_level.toUpperCase()} RISK</span>
+    </div>
+
+    <div class="model-scores">
+      <div class="score-card"><div class="name">XGBoost</div><div class="num">${(d.xgb_probability*100).toFixed(1)}%</div></div>
+      <div class="score-card"><div class="name">BiGRU-Attention</div><div class="num">${(d.bigru_probability*100).toFixed(1)}%</div></div>
+      <div class="score-card"><div class="name">Ensemble (0.6/0.4)</div><div class="num">${(d.ensemble_probability*100).toFixed(1)}%</div></div>
+    </div>
+
+    <div class="action-box">🛠️ <strong>Recommended action:</strong> ${d.recommended_action}</div>
+
+    ${d.risk_level !== 'low' ? `
+      <button class="action-btn ${d.risk_level}" id="executeBtn" onclick="executeAction(${d.device_id})">
+        ⚙️ Execute Recommended Action (Cordon + Drain Node)
+      </button>
+      <div id="consoleOutput"></div>
+    ` : ''}
+
+    <h2>SHAP Explainability — why the model flagged this device</h2>
+    ${shapRowsHtml(d.top_shap_reasons)}
+
+    <h2 style="margin-top:20px">Latest Raw Telemetry</h2>
+    <div class="readings-grid">${readingRows}</div>
+  `;
+}
+
+async function executeAction(deviceId) {
+  const btn = document.getElementById("executeBtn");
+  const out = document.getElementById("consoleOutput");
+  btn.disabled = true;
+  btn.textContent = "⏳ Executing...";
+  out.innerHTML = `<div class="console">Contacting Kubernetes API...</div>`;
+
+  try {
+    const res = await fetch(`${API}/actions/cordon_drain/${deviceId}`, { method: "POST" });
+    const data = await res.json();
+    const modeLabel = data.mode === "real" ? "LIVE CLUSTER" : "SIMULATED (no cluster connected)";
+    out.innerHTML = `
+      <div class="console">
+        <span class="mode-tag">${modeLabel}</span>
+        ${data.log.join("\n")}
+      </div>
+    `;
+    btn.textContent = "✅ Action Complete";
+  } catch (e) {
+    out.innerHTML = `<div class="console">Failed to reach API: ${e}</div>`;
+    btn.disabled = false;
+    btn.textContent = "⚙️ Execute Recommended Action (Cordon + Drain Node)";
+  }
+}
+
+init();
+</script>
+</body>
+</html>
